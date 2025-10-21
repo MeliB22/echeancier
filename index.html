@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calculateur d'échéancier</title>
+      <link rel="manifest" href="/manifest.json">
+          <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/service-worker.js')
+                    .then(reg => console.log('Service worker enregistré!', reg.scope))
+                    .catch(err => console.log('Échec de l\'enregistrement du service worker:', err));
+            });
+        }
+    </script>
+    <!-- Chargement de Tailwind CSS pour le style -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chargement de la police Montserrat (similaire à Gotham-Bold) -->
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        /* Définition des couleurs personnalisées basées sur les images fournies */
+        :root {
+            --color-rose: #ec4899; /* Pink-500 de Tailwind (similaire à Rose.PNG) */
+            --color-bleu-fond: #0f172a; /* Slate-900 de Tailwind (similaire à bleu.PNG) */
+        }
+        body {
+            font-family: 'Montserrat', sans-serif; /* Utilisation de la police Montserrat */
+            background-color: var(--color-bleu-fond);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
+        /* Style pour les boutons et les résultats */
+        .input-field, .result-value, .copy-button {
+            border-radius: 0.5rem;
+            padding: 0.75rem 1rem;
+            font-size: 1rem;
+        }
+        .input-field {
+            background-color: rgba(255, 255, 255, 0.1);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: all 0.2s;
+        }
+        .input-field:focus {
+            outline: none;
+            border-color: var(--color-rose);
+            box-shadow: 0 0 0 3px rgba(236, 72, 153, 0.5); /* Ombre rose */
+        }
+    </style>
+</head>
+<body>
+
+    <main class="w-full max-w-lg mx-auto bg-slate-900 p-6 sm:p-8 rounded-xl shadow-2xl border-4" 
+          style="border-color: var(--color-rose);">
+        
+        <!-- Titre de l'application -->
+        <h1 class="text-3xl sm:text-4xl font-black text-center mb-8" style="color: var(--color-rose);">
+            Calculateur d'échéancier
+        </h1>
+
+        <!-- Formulaire d'entrée -->
+        <div class="space-y-6">
+            <div>
+                <label for="debt-amount" class="block text-sm font-bold mb-2 text-white">Montant de la dette totale (€)</label>
+                <input type="number" id="debt-amount" placeholder="Ex: 5450.75" min="0" step="0.01" 
+                       class="input-field w-full" oninput="calculateSchedule()">
+            </div>
+            <div>
+                <label for="monthly-payment" class="block text-sm font-bold mb-2 text-white">Montant de l'engagement mensuel (€)</label>
+                <input type="number" id="monthly-payment" placeholder="Ex: 150" min="0" step="0.01" 
+                       class="input-field w-full" oninput="calculateSchedule()">
+            </div>
+        </div>
+
+        <!-- Zone de résultats (Fond blanc pour le texte) -->
+        <div id="results" class="mt-8 p-6 space-y-4 text-white rounded-lg" style="background-color: rgba(255, 255, 255, 0.05);">
+
+            <!-- Message d'erreur/instruction -->
+            <p id="message" class="text-center font-bold text-lg text-pink-400">
+                Entrez les montants pour calculer l'échéancier.
+            </p>
+
+            <!-- Résultat 1: Nombre de mensualités -->
+            <div id="result-months-container" class="hidden">
+                <p class="text-sm font-bold text-pink-400 uppercase">Nombre de mensualités à l'engagement :</p>
+                <p id="result-months" class="text-2xl font-extrabold"></p>
+            </div>
+
+            <!-- Résultat 2: Montant de la dernière mensualité -->
+            <div id="result-last-payment-container" class="hidden pt-2 border-t border-slate-700">
+                <p class="text-sm font-bold text-pink-400 uppercase">Montant de la dernière mensualité pour solde :</p>
+                <p id="result-last-payment" class="text-2xl font-extrabold"></p>
+            </div>
+            
+            <!-- Résultat 3: Durée totale (Années et Mois) -->
+            <div id="result-duration-container" class="hidden pt-4 border-t border-slate-700">
+                <p class="text-sm font-bold text-pink-400 uppercase">Durée totale de l'échéancier :</p>
+                <p id="result-duration" class="text-xl font-bold"></p>
+            </div>
+
+            <!-- Résultat 4: Dette totale en lettres (avec bouton Copier) -->
+            <div id="result-words-container" class="hidden pt-4 border-t border-slate-700">
+                <p class="text-sm font-bold text-pink-400 uppercase mb-2">Montant total de la dette en lettres :</p>
+                <div class="flex flex-col sm:flex-row gap-2">
+                    <p id="result-words" class="flex-grow p-2 bg-slate-800 rounded-md italic text-sm sm:text-base break-words"></p>
+                    <button id="copy-button" onclick="copyToClipboard()"
+                            class="bg-pink-600 hover:bg-pink-700 transition duration-150 text-white font-bold py-2 px-4 rounded-lg shadow-md flex-shrink-0">
+                        Copier
+                    </button>
+                </div>
+            </div>
+
+        </div>
+
+    </main>
+
+    <script>
+        // --- Constantes et initialisation ---
+        // Variables globales pour l'interface utilisateur
+        const debtInput = document.getElementById('debt-amount');
+        const paymentInput = document.getElementById('monthly-payment');
+        const messageEl = document.getElementById('message');
+        const resultsEl = document.getElementById('results');
+        const resultMonthsEl = document.getElementById('result-months');
+        const resultLastPaymentEl = document.getElementById('result-last-payment');
+        const resultDurationEl = document.getElementById('result-duration');
+        const resultWordsEl = document.getElementById('result-words');
+        const copyButton = document.getElementById('copy-button');
+
+        // Tableau des unités pour la conversion en lettres
+        const units = ["", "un", "deux", "trois", "quatre", "cinq", "six", "sept", "huit", "neuf"];
+        const teens = ["dix", "onze", "douze", "treize", "quatorze", "quinze", "seize", "dix-sept", "dix-huit", "dix-neuf"];
+        const tens = ["", "", "vingt", "trente", "quarante", "cinquante", "soixante", "soixante-dix", "quatre-vingts", "quatre-vingt-dix"];
+        
+        // --- Fonctions utilitaires ---
+
+        /**
+         * Convertit un nombre (partie entière) en mots français.
+         * Supporte jusqu'à 999 999 999 999 (milliers de milliards) pour la robustesse.
+         * @param {number} num Le nombre entier à convertir.
+         * @returns {string} Le nombre écrit en lettres.
+         */
+        function numberToWords(num) {
+            if (num === 0) return "";
+            if (num < 10) return units[num];
+            if (num < 20) return teens[num - 10];
+            if (num < 100) {
+                const d = Math.floor(num / 10);
+                const r = num % 10;
+                let s = tens[d];
+                if (d === 7 || d === 9) { // 70-79 et 90-99
+                    s = tens[d - 1]; // 60 ou 80
+                    const remainder = num - (d - 1) * 10;
+                    if (remainder === 1) { s += "-et-onze"; }
+                    else if (remainder < 17) { s += "-" + teens[remainder - 10]; }
+                    else if (remainder === 17) { s += "-dix-sept"; } // Cas 70/90
+                    else if (remainder === 18) { s += "-dix-huit"; } // Cas 70/90
+                    else if (remainder === 19) { s += "-dix-neuf"; } // Cas 70/90
+                    else { s += "-dix" + (units[r] ? "-" + units[r] : ""); }
+                } else { // 20-69, 80-89
+                    if (d === 8 && r === 0) { // 80 (quatre-vingts avec 's')
+                        s = "quatre-vingts";
+                    } else if (d === 8) { // 81-89 (quatre-vingt-un sans 's')
+                        s = "quatre-vingt-" + units[r];
+                    } else if (d === 2 && r === 1) { // 21 (vingt-et-un)
+                        s = "vingt-et-un";
+                    } else if (r === 1) { // 31, 41, 51, 61 (trente-et-un, etc.)
+                        s += "-et-un";
+                    } else if (r > 0) {
+                        s += "-" + units[r];
+                    }
+                }
+                if (d === 8 && r > 0) { s = "quatre-vingt-" + units[r]; }
+
+                // Règle spécifique pour 70-79 et 90-99
+                if (d === 7) {
+                    s = "soixante";
+                    const rem = num - 60;
+                    if (rem === 10) s += "-dix";
+                    else if (rem > 10 && rem < 20) s += "-" + teens[rem - 10];
+                    else if (rem > 0) s += "-" + numberToWords(rem);
+                } else if (d === 9) {
+                    s = "quatre-vingt";
+                    const rem = num - 80;
+                    if (rem === 10) s += "-dix";
+                    else if (rem > 10 && rem < 20) s += "-" + teens[rem - 10];
+                    else if (rem > 0) s += "-" + numberToWords(rem);
+                }
+
+                if (d >= 2 && d <= 6) {
+                    if (r === 1) {
+                        s = tens[d] + (d === 2 ? "-et-un" : "-et-un");
+                    } else if (r > 0) {
+                        s = tens[d] + "-" + units[r];
+                    } else {
+                        s = tens[d];
+                    }
+                }
+                
+                return s;
+            }
+            if (num < 1000) {
+                const h = Math.floor(num / 100);
+                const r = num % 100;
+                let s = (h > 1 ? units[h] + " " : "") + "cent";
+                if (r > 0) { s += " " + numberToWords(r); } 
+                else if (h === 1) { s = "cent"; }
+                else if (h > 1) { s += (r === 0 ? "s" : ""); } // "cents" pour 200, 300, etc.
+                if (h > 1 && r === 0) s += "s";
+                return s.replace("cent ", "cent");
+            }
+
+            const scale = [
+                { limit: 1000, name: "mille" },
+                { limit: 1000000, name: "million" },
+                { limit: 1000000000, name: "milliard" }
+            ];
+
+            for (let i = scale.length - 1; i >= 0; i--) {
+                const { limit, name } = scale[i];
+                if (num >= limit) {
+                    const block = Math.floor(num / limit);
+                    const remainder = num % limit;
+                    let blockWords = numberToWords(block);
+
+                    // Correction pour 'mille' qui ne prend pas de 's'
+                    if (name === "mille") {
+                        if (block === 1) {
+                            blockWords = ""; // On dit "mille", pas "un mille"
+                        }
+                    }
+
+                    let s = blockWords + (blockWords ? " " : "") + name;
+
+                    // Ajouter 's' pour million(s) et milliard(s) si > 1
+                    if (block > 1 && (name === "million" || name === "milliard")) {
+                        s += "s";
+                    }
+
+                    if (remainder > 0) {
+                        s += " " + numberToWords(remainder);
+                    }
+                    return s.trim();
+                }
+            }
+
+            return ""; // Devrait être inatteignable si la logique est bonne
+        }
+
+        /**
+         * Convertit un montant en EUR (avec centimes) en mots français.
+         * @param {number} amount Le montant total.
+         * @returns {string} Le montant écrit en lettres.
+         */
+        function amountToFrenchWords(amount) {
+            if (isNaN(amount)) return "";
+            if (amount === 0) return "Zéro euro et zéro centime";
+
+            // Séparer les euros et les centimes
+            const euros = Math.floor(amount);
+            // Math.round pour gérer les imprécisions des flottants
+            const centimes = Math.round((amount - euros) * 100);
+
+            // Conversion des euros
+            let eurosWords = numberToWords(euros).trim();
+            eurosWords = eurosWords.replace(/-et-un/g, " et un"); // Normaliser les tirets/espaces
+            let euroLabel = (euros <= 1 && euros >= 0) ? "euro" : "euros";
+            let eurosPhrase = eurosWords + " " + euroLabel;
+            
+            if (euros === 0) eurosPhrase = "Zéro euro";
+
+            // Conversion des centimes
+            let centimesWords = numberToWords(centimes).trim();
+            let centimeLabel = (centimes <= 1 && centimes >= 0) ? "centime" : "centimes";
+            let centimesPhrase = (centimes > 0) ? centimesWords + " " + centimeLabel : "zéro centime";
+
+            // Assemblage final
+            return (eurosPhrase + " et " + centimesPhrase).trim();
+        }
+
+        /**
+         * Copie le montant en lettres dans le presse-papiers.
+         */
+        function copyToClipboard() {
+            const textToCopy = resultWordsEl.innerText;
+            if (!textToCopy) return;
+
+            // Utilisation de la méthode document.execCommand('copy') pour la compatibilité dans l'iframe
+            const textArea = document.createElement("textarea");
+            textArea.value = textToCopy;
+            textArea.style.position = "fixed";  // Éviter que le clavier virtuel ne s'affiche sur mobile
+            textArea.style.opacity = 0;
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+
+            try {
+                const successful = document.execCommand('copy');
+                if (successful) {
+                    const originalText = copyButton.innerText;
+                    copyButton.innerText = "Copié !";
+                    copyButton.classList.add('bg-green-600', 'hover:bg-green-700');
+                    copyButton.classList.remove('bg-pink-600', 'hover:bg-pink-700');
+                    setTimeout(() => {
+                        copyButton.innerText = originalText;
+                        copyButton.classList.remove('bg-green-600', 'hover:bg-green-700');
+                        copyButton.classList.add('bg-pink-600', 'hover:bg-pink-700');
+                    }, 1500);
+                } else {
+                    console.error('La copie a échoué');
+                }
+            } catch (err) {
+                console.error('Erreur lors de la tentative de copie', err);
+            }
+
+            document.body.removeChild(textArea);
+        }
+
+        /**
+         * Calcule l'échéancier et met à jour l'interface.
+         */
+        function calculateSchedule() {
+            const debtAmount = parseFloat(debtInput.value.replace(',', '.'));
+            const monthlyPayment = parseFloat(paymentInput.value.replace(',', '.'));
+
+            // Masquer les résultats par défaut
+            document.querySelectorAll('[id$="-container"]').forEach(el => el.classList.add('hidden'));
+            messageEl.classList.remove('hidden');
+            
+            // Validation des entrées
+            if (isNaN(debtAmount) || isNaN(monthlyPayment) || debtAmount < 0 || monthlyPayment < 0) {
+                messageEl.textContent = "Veuillez entrer des montants valides.";
+                return;
+            }
+
+            if (debtAmount === 0) {
+                messageEl.textContent = "La dette est nulle. Aucune mensualité requise.";
+                return;
+            }
+
+            if (monthlyPayment === 0) {
+                messageEl.textContent = "Le montant de l'engagement doit être supérieur à zéro pour solde.";
+                return;
+            }
+
+            if (monthlyPayment >= debtAmount) {
+                 messageEl.textContent = "Le paiement mensuel est supérieur ou égal à la dette. Un seul paiement suffit.";
+                 // Afficher le résultat pour un seul paiement
+                 resultMonthsEl.textContent = "0"; // 0 mois à l'engagement complet
+                 resultLastPaymentEl.textContent = `${debtAmount.toFixed(2).replace('.', ',')} €`;
+                 resultDurationEl.textContent = "0 an et 1 mois";
+                 resultWordsEl.textContent = amountToFrenchWords(debtAmount);
+                 document.getElementById('result-months-container').classList.remove('hidden');
+                 document.getElementById('result-last-payment-container').classList.remove('hidden');
+                 document.getElementById('result-duration-container').classList.remove('hidden');
+                 document.getElementById('result-words-container').classList.remove('hidden');
+                 messageEl.classList.add('hidden');
+                 return;
+            }
+
+            // --- Logique de calcul ---
+            
+            const numFullPayments = Math.floor(debtAmount / monthlyPayment);
+            const totalPaidByFullPayments = numFullPayments * monthlyPayment;
+            let remainingDebt = debtAmount - totalPaidByFullPayments;
+            
+            // Correction pour les erreurs d'arrondi des flottants
+            remainingDebt = Math.round(remainingDebt * 100) / 100; 
+
+            let totalMonths;
+            let lastPaymentAmount;
+
+            if (remainingDebt > 0.01) { // Reste une dette significative
+                totalMonths = numFullPayments + 1;
+                lastPaymentAmount = remainingDebt;
+            } else if (numFullPayments > 0) { // Dette parfaitement divisible
+                totalMonths = numFullPayments;
+                lastPaymentAmount = monthlyPayment;
+            } else {
+                // Cas déjà géré par debtAmount = 0 ou monthlyPayment >= debtAmount, mais par sécurité
+                totalMonths = 0;
+                lastPaymentAmount = 0;
+            }
+
+            // Durée en années et mois
+            const years = Math.floor(totalMonths / 12);
+            const months = totalMonths % 12;
+
+            // --- Affichage des résultats ---
+
+            resultMonthsEl.textContent = `${numFullPayments} mensualité${numFullPayments > 1 ? 's' : ''}`;
+            
+            resultLastPaymentEl.textContent = `${lastPaymentAmount.toFixed(2).replace('.', ',')} €`;
+            
+            let durationString = '';
+            if (years > 0) {
+                durationString += `${years} an${years > 1 ? 's' : ''}`;
+            }
+            if (months > 0) {
+                durationString += (years > 0 ? ' et ' : '') + `${months} mois`;
+            } else if (years === 0) {
+                 durationString = "Moins d'un mois (ou aucune dette)";
+            }
+            
+            resultDurationEl.textContent = durationString;
+
+            // Montant total en lettres
+            resultWordsEl.textContent = amountToFrenchWords(debtAmount);
+
+            // Afficher les conteneurs de résultats
+            document.getElementById('result-months-container').classList.remove('hidden');
+            document.getElementById('result-last-payment-container').classList.remove('hidden');
+            document.getElementById('result-duration-container').classList.remove('hidden');
+            document.getElementById('result-words-container').classList.remove('hidden');
+            messageEl.classList.add('hidden');
+        }
+
+        // Initialisation de l'affichage
+        window.onload = function() {
+            // Un petit exemple pour que l'utilisateur voit immédiatement un résultat
+            debtInput.value = '5450.75';
+            paymentInput.value = '150';
+            calculateSchedule();
+        }
+
+    </script>
+
+</body>
+</html>
